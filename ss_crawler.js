@@ -1,29 +1,11 @@
 const puppeteer = require('puppeteer')
 const fs = require('fs');
-const config = require('config');
-const cheerio = require('cheerio');
 const moment = require('moment')
 
 // Reading in stop words
 f = fs.readFileSync("./stop_word_list/stop_word_list_174.txt", {encoding: 'utf8', flag: "r"})
 sw_list = f.split("\r\n")
 
-// Function generates a list of urls specified in a text file for processing
-function getUrlsFromTextFile (path) {
-
-    const urls = []
-
-    try {
-        const tmp = fs.readFileSync(path, 'utf8')
-        tmp.split(/\r?\n/).forEach(line => {
-            urls.push(line)
-        })
-    } catch (err) {
-        console.error(err)
-    }
-
-    return urls
-}
 
 // Sleep function implemetation
 function sleep(ms) {
@@ -62,100 +44,85 @@ function setDiff(l1, l2) {
     return Array.from(new Set([...s1].filter(x => !s2.has(x))));
 }
 
-// async function get_ss (ind, uri) {
+/* Randomize array in-place using Durstenfeld shuffle algorithm */
+function shuffleArr(array) {
+    let arrayCopy = [...array]
+    for (var i = arrayCopy.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var temp = arrayCopy[i];
+        arrayCopy[i] = arrayCopy[j];
+        arrayCopy[j] = temp;
+    }
+    return arrayCopy
+}
 
-//     try {
+function getRandomSubArrFromArr(arr, num) {
+    let ind_arr = Array.from({ length: arr.length }, (value, index) => index)
+    let ind_arr_shuffle_choose = shuffleArr(ind_arr).slice(0, num)
+    let ret_arr = []
+    for (i=0; i<ind_arr_shuffle_choose.length; i++) {
+        ret_arr.push(arr[ind_arr_shuffle_choose[i]])
+    }
+    return ret_arr
+}
 
-//         const browser = await puppeteer.launch({headless:'new'})
-//         const page = await browser.newPage(); //open new tab
-//         await (await browser.pages())[0].close(); //close first one, to overcome the bug in stealth library mentioned in
-//         //https://github.com/berstend/puppeteer-extra/issues/88
+async function clickAllElements(page, element_list, max_clicks, click_timeout_ms, max_num_bad_clicks) {
 
-//         await page.setViewport({
-//             height: 1080,
-//             width: 1920
-//         });
+    let uri_list_tmp = []
+    let bad_click_ctr = 0
+    let element_sub_list = []
 
-//         await page.goto(uri, {
-//             //https://blog.cloudlayer.io/puppeteer-waituntil-options/
-//             waitUntil: "networkidle2",
-//             timeout: 3 * 1000
-//             // timeout: 0
-//         })
+    if (max_clicks = "max") {
+        element_sub_list = element_list
+    } else {
+        element_sub_list = getRandomSubArrFromArr(element_list, max_clicks)
+    }
 
-//         await sleep(1000)
+    for (i = 0; i < element_list.length; i++) {
 
-//         const t_hold = .35
+        // console.log("       " + ind)
+        // console.log("       bcc " + bad_click_ctr)                    
 
-//         let eng_w_per = 0
+        if (bad_click_ctr > max_num_bad_clicks){
+            break                        
+        }
 
-//         let wp_lang = await page.evaluate(() => {
-//             const lang = document.querySelector('html').lang
-//             return lang
-//         })
+        try {
 
-//         if (wp_lang = "en") {
-//             eng_w_per = 1
-//         }
+            let elem = element_list[i]
 
-//         if (eng_w_per < t_hold) {
-            
-//             allElements = await page.evaluate(() => {
-//                 const tmp_list = []
-//                 const allElements = document.querySelectorAll('*')
-//                 for (const element of allElements) {
-//                     tmp_list.push(element.innerText)
-//                 }             
-//                 return tmp_list
-//             })
+            // Use a Promise-based timeout mechanism
+            await new Promise((resolve, reject) => {
 
-//             en_count = 0
-//             word_count = 0
+                const timeoutID = setTimeout(() => {
+                    clearTimeout(timeoutID); // Clear the timeout
+                    reject(bad_click_ctr + 1 + ". click has taken too long to load... it will be skipped!");
+                    bad_click_ctr++                               
+                }, click_timeout_ms);
 
-//             for (let i = 0; i < allElements.length; i++) {
-//                 elemWords = allElements[i].split(" ")
-//                 bf = false
-//                 for (let j = 0; j < elemWords.length; j++) {
-//                     word_count++
-//                     for (k = 0; k < sw_list.length; k++){
-//                         if (elemWords[j] == sw_list[k]) {
-//                             en_count ++
-//                         }
-//                     } 
-//                 }
-//             }
+                elem.click()
+                    .then(() => {
+                        clearTimeout(timeoutID); // Clear the timeout
+                        resolve();
+                    })
+                    .catch((error) => {
+                        clearTimeout(timeoutID); // Clear the timeout
+                        reject(error);
+                    });
 
-//             eng_w_per = en_count/word_count
-//         }
+            });
 
-//         if (eng_w_per < t_hold) {
-//             throw {name: "nonEnglishWebpageException", message: "This webpage is not in english so it will be skipped!"};
-//         }
+            uri_list_tmp.push(page.url())
 
-//         await sleep(2000)
+        } catch (e) {
+            // console.error(e)
+        }
 
-//         await page.screenshot({
-//             path: `./ss/ss_${ind}.png`,
-//             clip: {
-//                 x:0,
-//                 y:0,
-//                 width: 1920,
-//                 height: 1080
-//             }
-//         })
+    }
 
-//         await page.close()
-//         await browser.close()       
+    return uri_list_tmp
 
-//     } catch (e) {
-
-//         console.error(e)
-//         await page.close()
-//         await browser.close()
-
-//     } 
-
-// }
+}
 
 async function exploreUri(uri_list) {
 
@@ -172,23 +139,7 @@ async function exploreUri(uri_list) {
         await (await browser.pages())[0].close(); //close first one, to overcome the bug in stealth library mentioned in
         //https://github.com/berstend/puppeteer-extra/issues/88
 
-        // timeoutID = setInterval(async ()=> {
-        //     let pages_list = await browser.pages()
-        //     console.log(pages_list)
-        //     for(i=pages_list.length - 1; i>0; i--){
-        //         console.log([pages_list[i]])
-        //         console.log("******************")
-        //         pages_list[i].close()
-        //         sleep(5 * 1000)
-        //     } 
-        // }, 5 * 1000)
-
         try {  
-
-            // timeoutID = setTimeout(async ()=> {
-            //     await page.close()
-            //     await browser.close()
-            // }, 20 * 1000)
 
             await page.goto(uri, {
                 //https://blog.cloudlayer.io/puppeteer-waituntil-options/
@@ -197,23 +148,9 @@ async function exploreUri(uri_list) {
                 // timeout: 0
             })
 
-            async function clickAllElements (element_list) {
-                let uri_list_tmp = []
-                for (i=0; i<element_list.length; i++) {
-                    try {
-                        let elem = element_list[i]
-                        await elem.click()
-                        uri_list_tmp.push(page.url())
-                        // console.log("element " + i + " clicked")
-                    } catch (e) {
-                        // console.error(e)
-                    }
-                }
-                return uri_list_tmp
-            }
 
             const element_list = await page.$$('*')
-            let uri_list = await clickAllElements(element_list)
+            let uri_list = await clickAllElements(page, element_list, 1000, 2 * 1000, 10)
             let tab_list = await browser.pages()
 
             for (i=0; i<tab_list.length; i++) {
@@ -278,7 +215,7 @@ async function exploreUriListToDepth (uri_list, depth) {
 
 async function mainDriver () {
 
-    uri_input_path = "./url_lists/test_3.txt"
+    uri_input_path = "./url_lists/popadsnet_25.txt"
     uri_seed_list = getUrlsFromTextFile(uri_input_path)
     depth = 3
 
@@ -300,6 +237,7 @@ async function mainDriver () {
     }
 
     uri_list_master_flat = removeDups(uri_list_master.flat(2))
+
     uri_out_path_list1 = uri_input_path.split("/")
     uri_out_path_list2 = uri_out_path_list1[uri_out_path_list1.length - 1].split(".")
     uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
@@ -310,10 +248,10 @@ async function mainDriver () {
         else 
         fs.appendFileSync(uri_out_path, uri_list_master_flat[i] )
     }
-        
-    
 
 }
+
+
 
 mainDriver()
 
