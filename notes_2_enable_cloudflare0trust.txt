@@ -1,0 +1,7 @@
+### Steps to use Cloudflare 0 trust in WSL2
+
+sudo nano /etc/resolv.conf
+edit resolve.conf to include the following nameservers: 172.64.36.1, 172.64.36.2
+sudo resolvectl flush-caches
+sudo systemctl restart systemd-resolved #To restart resolvectl
+sudo resolvectl status #Check to make sure that nameservers are correct

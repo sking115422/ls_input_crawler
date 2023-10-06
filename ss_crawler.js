@@ -66,6 +66,15 @@ function getRandomSubArrFromArr(arr, num) {
     return ret_arr
 }
 
+function removeItemFromArray(arr, item) {
+    arr_tmp = [...arr]
+    const index_ = arr_tmp.indexOf(item);
+    if (index_ > -1) { // only splice array when item is found
+      arr_tmp.splice(index_, 1); // 2nd parameter means remove one item only
+    }
+    return arr_tmp
+}
+
 async function clickAllElements(page, element_list, max_clicks, click_timeout_ms, max_num_bad_clicks) {
 
     let uri_list_tmp = []
@@ -95,22 +104,22 @@ async function clickAllElements(page, element_list, max_clicks, click_timeout_ms
             await new Promise((resolve, reject) => {
 
                 const timeoutID = setTimeout(() => {
-                    clearTimeout(timeoutID); // Clear the timeout
+                    clearTimeout(timeoutID) // Clear the timeout
                     reject(bad_click_ctr + 1 + ". click has taken too long to load... it will be skipped!");
                     bad_click_ctr++                               
-                }, click_timeout_ms);
+                }, click_timeout_ms)
 
                 elem.click()
                     .then(() => {
-                        clearTimeout(timeoutID); // Clear the timeout
-                        resolve();
+                        clearTimeout(timeoutID) // Clear the timeout
+                        resolve()
                     })
                     .catch((error) => {
-                        clearTimeout(timeoutID); // Clear the timeout
-                        reject(error);
-                    });
+                        clearTimeout(timeoutID) // Clear the timeout
+                        reject(error)
+                    })
 
-            });
+            })
 
             uri_list_tmp.push(page.url())
 
@@ -129,7 +138,7 @@ async function exploreUri(uri_list) {
     let uri_list_uniq_master = []
 
     for (uri_ind=0; uri_ind<uri_list.length; uri_ind++) {
-
+        
         console.log("   " + uri_ind)
 
         let uri = uri_list[uri_ind]
@@ -157,14 +166,15 @@ async function exploreUri(uri_list) {
                 uri_list.push(tab_list[i].url())
             }
 
-            let uri_list_uniq = removeDups(uri_list)
+            uri_list_uniq_master = removeDups([...uri_list_uniq_master, ...uri_list])
 
-            uri_list_uniq_master = removeDups([...uri_list_uniq_master, ...uri_list_uniq])
-
-            // clearTimeout(timeoutID)
+            // console.log(uri_list_uniq_master)
 
         } catch (e) {
-
+            
+            //return this and uri_list_uniq_master then remove from finally array in higher function before it is written into txt file
+            del_list = [uri, ...uri_list_uniq_master]
+            console.log(del_list)
             console.error(e)
 
         } finally {
@@ -173,8 +183,11 @@ async function exploreUri(uri_list) {
             await browser.close()
 
         }
+
     }
-    return uri_list_uniq_master
+
+    return removeDups(uri_list_uniq_master)
+
 }
 
 async function exploreUriToDepth (uri, depth) {
