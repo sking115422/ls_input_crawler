@@ -6,6 +6,10 @@ const moment = require('moment')
 f = fs.readFileSync("./stop_word_list/stop_word_list_174.txt", {encoding: 'utf8', flag: "r"})
 sw_list = f.split("\r\n")
 
+// Reading in stop words
+f2 = fs.readFileSync("./adult_content_word_list/ac_list_1.txt", {encoding: 'utf8', flag: "r"})
+ac_list = f2.split("\n")
+
 
 // Sleep function implemetation
 function sleep(ms) {
@@ -58,6 +62,9 @@ function shuffleArr(array) {
 
 function getRandomSubArrFromArr(arr, num) {
     let ind_arr = Array.from({ length: arr.length }, (value, index) => index)
+    if (num > arr.length) {
+        num = arr.length
+    }
     let ind_arr_shuffle_choose = shuffleArr(ind_arr).slice(0, num)
     let ret_arr = []
     for (i=0; i<ind_arr_shuffle_choose.length; i++) {
@@ -75,16 +82,64 @@ function removeItemFromArray(arr, item) {
     return arr_tmp
 }
 
+async function checkWebpageLang(wp_stop_word_path, page, wp_desired_lang, wp_lang_thresh) {
+
+    // Loading common stop words as list
+    f = fs.readFileSync(wp_stop_word_path, {encoding: 'utf8', flag: "r"})
+    sw_list = f.split("\r\n")
+
+    // Setting language word percent to zero
+    let lang_w_per = 0
+
+    // Checking to see if webpage has specified language
+    const wp_raw_lang = await page.$eval('html', element => element.lang);
+
+    // If so and language matches desired language set percent to 1
+    if (wp_raw_lang == wp_desired_lang) {
+        lang_w_per = 1
+    }
+
+    // If not we will check the inner text of all element of the page against common stopwords of the language
+    // then we will recompute lang_w_per
+    if (lang_w_per < wp_lang_thresh) {
+
+        en_count = 0
+        word_count = 0
+
+        const element_list_text = await page.$$eval('*', elements => elements.map(element => element.innerText));
+
+        for (let i = 0; i < element_list_text.length; i++) {
+            elemWords = element_list_text[i].split(" ")
+            for (let j = 0; j < elemWords.length; j++) {
+                word_count++
+                for (k = 0; k < sw_list.length; k++){
+                    if (elemWords[j] == sw_list[k]) {
+                        en_count ++
+                    }
+                } 
+            }
+        }
+        lang_w_per = en_count/word_count
+    }
+
+    console.log(lang_w_per)
+
+    // If language percent too low throw error
+    if (lang_w_per < wp_lang_thresh) {
+        throw "This webpage is not in english so it will be skipped!"
+    }
+
+}
+
 async function clickAllElements(page, element_list, max_clicks, click_timeout_ms, max_num_bad_clicks) {
 
     let uri_list_tmp = []
     let bad_click_ctr = 0
-    let element_sub_list = []
 
-    if (max_clicks = "max") {
-        element_sub_list = element_list
+    if (max_clicks = "max" || max_clicks > element_list.length) {
+        element_list = getRandomSubArrFromArr(element_list, element_list.length)
     } else {
-        element_sub_list = getRandomSubArrFromArr(element_list, max_clicks)
+        element_list = getRandomSubArrFromArr(element_list, max_clicks)
     }
 
     for (i = 0; i < element_list.length; i++) {
@@ -136,12 +191,13 @@ async function clickAllElements(page, element_list, max_clicks, click_timeout_ms
 async function exploreUri(uri_list) {
 
     let uri_list_uniq_master = []
+    let del_list_uniq_master = []
 
-    for (uri_ind=0; uri_ind<uri_list.length; uri_ind++) {
+    for (i=0; i<uri_list.length; i++) {
         
-        console.log("   " + uri_ind)
+        console.log("   " + i)
 
-        let uri = uri_list[uri_ind]
+        let uri = uri_list[i]
 
         const browser = await puppeteer.launch({headless:false})
         const page = await browser.newPage(); //open new tab
@@ -150,6 +206,7 @@ async function exploreUri(uri_list) {
 
         try {  
 
+
             await page.goto(uri, {
                 //https://blog.cloudlayer.io/puppeteer-waituntil-options/
                 waitUntil: "networkidle2",
@@ -157,13 +214,14 @@ async function exploreUri(uri_list) {
                 // timeout: 0
             })
 
-
             const element_list = await page.$$('*')
-            let uri_list = await clickAllElements(page, element_list, 1000, 2 * 1000, 10)
+
+            await checkWebpageLang("./stop_word_list/stop_word_list_174.txt", page, "en", .15)
+            let uri_list = await clickAllElements(page, element_list, "max", 2 * 1000, 10)
             let tab_list = await browser.pages()
 
-            for (i=0; i<tab_list.length; i++) {
-                uri_list.push(tab_list[i].url())
+            for (j=0; j<tab_list.length; j++) {
+                uri_list.push(tab_list[j].url())
             }
 
             uri_list_uniq_master = removeDups([...uri_list_uniq_master, ...uri_list])
@@ -173,8 +231,8 @@ async function exploreUri(uri_list) {
         } catch (e) {
             
             //return this and uri_list_uniq_master then remove from finally array in higher function before it is written into txt file
-            del_list = [uri, ...uri_list_uniq_master]
-            console.log(del_list)
+            del_list = [uri, ...uri_list]
+            del_list_uniq_master = removeDups([...del_list, ...del_list_uniq_master])
             console.error(e)
 
         } finally {
@@ -186,43 +244,61 @@ async function exploreUri(uri_list) {
 
     }
 
-    return removeDups(uri_list_uniq_master)
+    return [uri_list_uniq_master, del_list_uniq_master]
 
 }
 
 async function exploreUriToDepth (uri, depth) {
 
     let ind = 0
-    let uri_list_exp = [uri]
-    let uri_list_exp_all = [uri]
+    let uri_list = [uri]
+    let uri_list_master = [uri]
+    let del_list_master = []
 
     while (ind < depth) {
 
-        let uri_list_exp_new = await exploreUri(uri_list_exp)
-        let diff_list = setDiff(uri_list_exp_new, uri_list_exp)
-        uri_list_exp_all.push(diff_list)
-        uri_list_exp = diff_list
+        let res = []
+
+        try {
+            res = await exploreUri(uri_list)
+        } catch (e) {
+            console.log(e)
+        }
+
+        let uri_list_new = res[0]
+        let diff_list = setDiff(uri_list_new, uri_list)
+        uri_list_master.push(diff_list)
+        uri_list = diff_list
+
+        let del_list = res[1]
+        if (del_list.length > 0) {
+            del_list_master.push(...del_list)
+        }    
+
         console.log(ind)
         ind++
+
     }
 
-    return uri_list_exp_all
+    return [uri_list_master, del_list_master]
 
 }
 
 async function exploreUriListToDepth (uri_list, depth) {
 
-    let mast_list = []
+    let ret_list = []
+    let del_list = []
     
     ind = 0
     while (ind < uri_list.length) {
         console.log(uri_list[ind])
         tmp_list = await exploreUriToDepth(uri_list[ind], depth)
-        mast_list.push(tmp_list)
+        ret_list.push(tmp_list[0])
+        del_list.push(tmp_list[1])
         ind++
     }
 
-    return mast_list
+    return [ret_list, del_list]
 
 }
 
@@ -232,7 +308,9 @@ async function mainDriver () {
     uri_seed_list = getUrlsFromTextFile(uri_input_path)
     depth = 3
 
-    uri_list_master = await exploreUriListToDepth(uri_seed_list, depth)
+    tmp_list = await exploreUriListToDepth(uri_seed_list, depth)
+    uri_list_master = tmp_list[0]
+    uri_del_list_master = tmp_list[1]
 
     const timestamp = new Date().getTime()
     ts_f = moment(timestamp).format()
@@ -250,22 +328,68 @@ async function mainDriver () {
     }
 
     uri_list_master_flat = removeDups(uri_list_master.flat(2))
+    uri_del_list_master_flat = removeDups(uri_del_list_master.flat(2))
+
+    let uri_list_master_flat_cln = uri_list_master_flat
+    for (i=0; i<uri_del_list_master_flat.length; i++) {
+        uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, uri_del_list_master_flat[i])
+    }
+
+    del_list_ac = []
+    for (i=0; i<uri_list_master_flat_cln.length; i++){
+        for (j=0; j<ac_list.length; j++){
+            // console.log(uri_list_master_flat_cln[i],  ac_list[j], uri_list_master_flat_cln[i].indexOf(ac_list[j]))
+            if (uri_list_master_flat_cln[i].indexOf(ac_list[j]) >= 0) {
+                // console.log(uri_list_master_flat_cln[i],  ac_list[j], uri_list_master_flat_cln[i].indexOf(ac_list[j]))
+                del_list_ac.push(uri_list_master_flat_cln[i])
+            }
+        }
+    }
+
+    for (i=0; i<del_list_ac.length; i++) {
+        uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, del_list_ac[i])
+    }
 
     uri_out_path_list1 = uri_input_path.split("/")
     uri_out_path_list2 = uri_out_path_list1[uri_out_path_list1.length - 1].split(".")
     uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
 
-    for (i = 0; i < uri_list_master_flat.length; i++) {
-        if (i != uri_list_master_flat.length - 1)
-            fs.appendFileSync(uri_out_path, uri_list_master_flat[i] + "\r\n" )
+    for (i = 0; i < uri_list_master_flat_cln.length; i++) {
+        if (i != uri_list_master_flat_cln.length - 1)
+            fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] + "\r\n" )
         else 
-        fs.appendFileSync(uri_out_path, uri_list_master_flat[i] )
+        fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] )
     }
 
 }
 
-
-
 mainDriver()
 
 
+function test1() {
+    let l1 = [
+        'https://litespeedtech.com/',
+        'https://litespeedtech.com/products/litespeed-web-server',
+        'https://litespeedtech.com/solutions/application-servers',
+        'https://litespeedtech.com/products/cache-plugins/xenforo-acceleration',
+        'http://kfapfakes.com/',
+        'https://kfapfakes.com/',
+        'https://any.fieryforgekeeper.top/play-music-video/?pl=2Krnxbv1gUmUYPR9kQ-eYQ&sm=play-music-video&click_id=132081526794&sub_id=49372&hash=Yi49xb8Epr5idRUoqanzCg&exp=1696656885',
+        'https://kfapfakes.com/category/red-velvet/',
+        'https://eatcells.com/land/?token=4ad6be6a6d9ede8e5d73b0769a51f92a',
+        'https://kfapfakes.com/category/winter/',
+        'chrome-error://chromewebdata/',
+        'https://eatcells.com/?from_land=1',
+        'http://blizzpaste.com/',
+        'https://blizzpaste.com/',
+        'https://blizzpaste.com/login.php',
+        'https://landing.ai-srvc.com/t3a/en?t=2&clk_domain=ad-blocking24.net&flow=binom&campaignId=10589&cid=771f11652375m13b&source=Primeroll&lpkey=166a961a6542689897&uclick=1652375m&uclickhash=1652375m-1652375m-5mi4-0-g56o-pmhq-pmzw-8b5f7a'
+      ]
+
+    l1.splice(0,1)
+
+    console.log(l1)
+
+}
+
+// test1()
