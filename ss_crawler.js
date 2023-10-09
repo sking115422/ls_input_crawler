@@ -1,15 +1,47 @@
+////// LIBRARY IMPORTS
+
 const puppeteer = require('puppeteer')
 const fs = require('fs');
 const moment = require('moment')
+const config = require('config');
+
+////// SETTING VARIABLES FROM CONFIG
+
+const paths = config.get('paths')
+
+let ac_wl_fp = paths.adult_content_word_list
+let lsw_wl_fp = paths.lang_stop_word_list
+let uri_input_path_ = paths.uri_input_path
+
+const pupp_conf = config.get('puppeteer_config')
+
+let wait_until = pupp_conf.wait_until
+let headless_ = pupp_conf.headless
+let page_load_time_out = pupp_conf.page_load_time_out
+
+const lang_check_conf = config.get('lang_check_config')
+
+let wp_desired_lang_ = lang_check_conf.wp_desired_lang
+let wp_lang_thresh_ = lang_check_conf.wp_lang_thresh
+
+const wp_exp_conf = config.get('wp_exp_conf')
+
+let max_clicks_ = wp_exp_conf.max_clicks
+let click_timeout_ = wp_exp_conf.click_timeout
+let max_num_bad_clicks_ = wp_exp_conf.max_num_bad_clicks
+let depth_ = wp_exp_conf.depth
+
+////// READING IN FILES
 
 // Reading in stop words
-f = fs.readFileSync("./stop_word_list/stop_word_list_174.txt", {encoding: 'utf8', flag: "r"})
+f = fs.readFileSync(lsw_wl_fp, {encoding: 'utf8', flag: "r"})
 sw_list = f.split("\r\n")
 
 // Reading in stop words
-f2 = fs.readFileSync("./adult_content_word_list/ac_list_1.txt", {encoding: 'utf8', flag: "r"})
+f2 = fs.readFileSync(ac_wl_fp, {encoding: 'utf8', flag: "r"})
 ac_list = f2.split("\n")
 
+////// HELPER FUNCTIONS
 
 // Sleep function implemetation
 function sleep(ms) {
@@ -35,8 +67,6 @@ function getUrlsFromTextFile (path) {
 
     return urls
 }
-
-/////////////////////////////////////////////////////////////////////////////////////
 
 function removeDups(lst) {
     return [...new Set(lst)]
@@ -82,11 +112,9 @@ function removeItemFromArray(arr, item) {
     return arr_tmp
 }
 
-async function checkWebpageLang(wp_stop_word_path, page, wp_desired_lang, wp_lang_thresh) {
+////// MAIN FUNCTIONS
 
-    // Loading common stop words as list
-    f = fs.readFileSync(wp_stop_word_path, {encoding: 'utf8', flag: "r"})
-    sw_list = f.split("\r\n")
+async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) {
 
     // Setting language word percent to zero
     let lang_w_per = 0
@@ -122,7 +150,7 @@ async function checkWebpageLang(wp_stop_word_path, page, wp_desired_lang, wp_lan
         lang_w_per = en_count/word_count
     }
 
-    console.log(lang_w_per)
+    // console.log(lang_w_per)
 
     // If language percent too low throw error
     if (lang_w_per < wp_lang_thresh) {
@@ -131,7 +159,7 @@ async function checkWebpageLang(wp_stop_word_path, page, wp_desired_lang, wp_lan
 
 }
 
-async function clickAllElements(page, element_list, max_clicks, click_timeout_ms, max_num_bad_clicks) {
+async function clickAllElements(page, element_list, max_clicks, click_timeout, max_num_bad_clicks) {
 
     let uri_list_tmp = []
     let bad_click_ctr = 0
@@ -162,7 +190,7 @@ async function clickAllElements(page, element_list, max_clicks, click_timeout_ms
                     clearTimeout(timeoutID) // Clear the timeout
                     reject(bad_click_ctr + 1 + ". click has taken too long to load... it will be skipped!");
                     bad_click_ctr++                               
-                }, click_timeout_ms)
+                }, click_timeout)
 
                 elem.click()
                     .then(() => {
@@ -199,7 +227,7 @@ async function exploreUri(uri_list) {
 
         let uri = uri_list[i]
 
-        const browser = await puppeteer.launch({headless:false})
+        const browser = await puppeteer.launch({headless: headless_ })
         const page = await browser.newPage(); //open new tab
         await (await browser.pages())[0].close(); //close first one, to overcome the bug in stealth library mentioned in
         //https://github.com/berstend/puppeteer-extra/issues/88
@@ -209,15 +237,15 @@ async function exploreUri(uri_list) {
 
             await page.goto(uri, {
                 //https://blog.cloudlayer.io/puppeteer-waituntil-options/
-                waitUntil: "networkidle2",
-                timeout: 5 * 1000
+                waitUntil: wait_until,
+                timeout: page_load_time_out * 1000
                 // timeout: 0
             })
 
             const element_list = await page.$$('*')
 
-            await checkWebpageLang("./stop_word_list/stop_word_list_174.txt", page, "en", .15)
-            let uri_list = await clickAllElements(page, element_list, "max", 2 * 1000, 10)
+            await checkWebpageLang(sw_list, page, wp_desired_lang_ , wp_lang_thresh_)
+            let uri_list = await clickAllElements(page, element_list, max_clicks_, click_timeout_ * 1000, max_num_bad_clicks_)
             let tab_list = await browser.pages()
 
             for (j=0; j<tab_list.length; j++) {
@@ -302,13 +330,13 @@ async function exploreUriListToDepth (uri_list, depth) {
 
 }
 
+////// MAIN DRIVER
+
 async function mainDriver () {
 
-    uri_input_path = "./url_lists/popadsnet_25.txt"
-    uri_seed_list = getUrlsFromTextFile(uri_input_path)
-    depth = 3
+    uri_seed_list = getUrlsFromTextFile(uri_input_path_)
 
-    tmp_list = await exploreUriListToDepth(uri_seed_list, depth)
+    tmp_list = await exploreUriListToDepth(uri_seed_list, depth_)
     uri_list_master = tmp_list[0]
     uri_del_list_master = tmp_list[1]
 
@@ -350,46 +378,19 @@ async function mainDriver () {
         uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, del_list_ac[i])
     }
 
-    uri_out_path_list1 = uri_input_path.split("/")
-    uri_out_path_list2 = uri_out_path_list1[uri_out_path_list1.length - 1].split(".")
-    uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
+    let uri_out_path_list1 = uri_input_path_.split("/")
+    let uri_out_path_list2 = uri_out_path_list1[uri_out_path_list1.length - 1].split(".")
+    let uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
 
     for (i = 0; i < uri_list_master_flat_cln.length; i++) {
-        if (i != uri_list_master_flat_cln.length - 1)
-            fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] + "\r\n" )
-        else 
-        fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] )
+        if (i != uri_list_master_flat_cln.length - 1){
+            fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] + "\r\n" )            
+        }
+        else {
+            fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i])
+        }
     }
 
 }
 
 mainDriver()
-
-
-function test1() {
-    let l1 = [
-        'https://litespeedtech.com/',
-        'https://litespeedtech.com/products/litespeed-web-server',
-        'https://litespeedtech.com/solutions/application-servers',
-        'https://litespeedtech.com/products/cache-plugins/xenforo-acceleration',
-        'http://kfapfakes.com/',
-        'https://kfapfakes.com/',
-        'https://any.fieryforgekeeper.top/play-music-video/?pl=2Krnxbv1gUmUYPR9kQ-eYQ&sm=play-music-video&click_id=132081526794&sub_id=49372&hash=Yi49xb8Epr5idRUoqanzCg&exp=1696656885',
-        'https://kfapfakes.com/category/red-velvet/',
-        'https://eatcells.com/land/?token=4ad6be6a6d9ede8e5d73b0769a51f92a',
-        'https://kfapfakes.com/category/winter/',
-        'chrome-error://chromewebdata/',
-        'https://eatcells.com/?from_land=1',
-        'http://blizzpaste.com/',
-        'https://blizzpaste.com/',
-        'https://blizzpaste.com/login.php',
-        'https://landing.ai-srvc.com/t3a/en?t=2&clk_domain=ad-blocking24.net&flow=binom&campaignId=10589&cid=771f11652375m13b&source=Primeroll&lpkey=166a961a6542689897&uclick=1652375m&uclickhash=1652375m-1652375m-5mi4-0-g56o-pmhq-pmzw-8b5f7a'
-      ]
-
-    l1.splice(0,1)
-
-    console.log(l1)
-
-}
-
-// test1()

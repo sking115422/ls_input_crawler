@@ -1,0 +1,28 @@
+
+
+# Start yaml doc
+---
+
+# File Paths
+paths:
+  adult_content_word_list: ./adult_content_word_list/ac_list_1.txt
+  lang_stop_word_list: ./stop_word_list/stop_word_list_174.txt
+  uri_input_path: "./url_lists/popadsnet.txt"
+
+# Puppeteer Configurations
+puppeteer_config:
+  page_load_time_out: 5 # In seconds
+  wait_until: networkidle2
+  headless: false
+
+# Webpage Language Check Configurations
+lang_check_config:
+  wp_desired_lang: en
+  wp_lang_thresh: .15
+
+# Webpage Exploration Configurations
+wp_exp_conf:
+  max_clicks: max
+  click_timeout: 2 # In seconds
+  max_num_bad_clicks: 10
+  depth: 3
