@@ -54,7 +54,7 @@ if (!fs.existsSync(ckpt_dir_ + "url_visited.txt")) {
 f = fs.readFileSync(lsw_wl_fp, {encoding: 'utf8', flag: "r"})
 sw_list = f.split("\r\n")
 
-// Reading in stop words
+// Reading in adult content related words
 f2 = fs.readFileSync(ac_wl_fp, {encoding: 'utf8', flag: "r"})
 ac_list = f2.split("\n")
 
@@ -85,17 +85,19 @@ function getUrlsFromTextFile (path) {
     return urls
 }
 
+// Function removes duplicates from an arrau
 function removeDups(lst) {
     return [...new Set(lst)]
 }
 
+// Function performs set difference then returns array of difference
 function setDiff(l1, l2) {
     let s1 = new Set(l1)
     let s2 = new Set(l2)
     return Array.from(new Set([...s1].filter(x => !s2.has(x))));
 }
 
-/* Randomize array in-place using Durstenfeld shuffle algorithm */
+// Randomize array in-place using Durstenfeld shuffle algorithm
 function shuffleArr(array) {
     let arrayCopy = [...array]
     for (var i = arrayCopy.length - 1; i > 0; i--) {
@@ -107,6 +109,7 @@ function shuffleArr(array) {
     return arrayCopy
 }
 
+// Function returns a randomized sub array from an array
 function getRandomSubArrFromArr(arr, num) {
     let ind_arr = Array.from({ length: arr.length }, (value, index) => index)
     if (num > arr.length) {
@@ -120,6 +123,7 @@ function getRandomSubArrFromArr(arr, num) {
     return ret_arr
 }
 
+// Function removes an item from a given array
 function removeItemFromArray(arr, item) {
     arr_tmp = [...arr]
     const index_ = arr_tmp.indexOf(item);
@@ -131,6 +135,7 @@ function removeItemFromArray(arr, item) {
 
 ////// MAIN FUNCTIONS
 
+// Function updates initial seed url list in case the previous run fails
 function getUpdatedSeedList (dir, og_seed_list) {
     try{
         let visited_url_list = fs.readFileSync(dir + "url_visited.txt", "utf8").split("\r\n")
@@ -145,6 +150,7 @@ function getUpdatedSeedList (dir, og_seed_list) {
     }
 }
 
+// Function creates checkpoint entries for each seed url if completed successfully
 function createCkptJson(dir, ind, url, ret_list, del_list) {
 
         if (fs.existsSync(dir + "ret_list.json")) {
@@ -166,6 +172,7 @@ function createCkptJson(dir, ind, url, ret_list, del_list) {
 
 }
 
+// Function checks if a webpage is in a particular language and throws error if it is not
 async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) {
 
     // Setting language word percent to zero
@@ -215,23 +222,24 @@ async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) 
 
 }
 
+// Function clicks all elements on a give page. 
 async function clickAllElements(page, element_list, max_clicks, click_timeout, max_num_bad_clicks) {
 
     let uri_list_tmp = []
     let bad_click_ctr = 0
 
+    // Set max number of element to be click on. If max entire array will be randomized and returned. This yeilds better perfomance overall.
     if (max_clicks = "max" || max_clicks > element_list.length) {
         element_list = getRandomSubArrFromArr(element_list, element_list.length)
     } else {
         element_list = getRandomSubArrFromArr(element_list, max_clicks)
     }
 
+    // Iterate through each element
     for (i = 0; i < element_list.length; i++) {
-
-        // console.log("       " + ind)
-        // console.log("       bcc " + bad_click_ctr)                    
-
-        if (bad_click_ctr > max_num_bad_clicks){
+        
+        // If bad clicks exceeds threshold, break out of loop
+        if (bad_click_ctr > max_num_bad_clicks - 1){
             break                        
         }
 
@@ -244,7 +252,8 @@ async function clickAllElements(page, element_list, max_clicks, click_timeout, m
 
                 const timeoutID = setTimeout(() => {
                     clearTimeout(timeoutID) // Clear the timeout
-                    reject(bad_click_ctr + 1 + ". click has taken too long to load... it will be skipped!");
+                    console.log(bad_click_ctr + 1 + ". click has taken too long to load... it will be skipped!")
+                    reject()
                     bad_click_ctr++                               
                 }, click_timeout)
 
@@ -279,7 +288,7 @@ async function exploreUri(uri_list) {
 
     for (i=0; i<uri_list.length; i++) {
         
-        console.log("   " + i)
+        // console.log("   " + i)
 
         let uri = uri_list[i]
 
