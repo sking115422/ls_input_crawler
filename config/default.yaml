@@ -7,7 +7,9 @@
 paths:
   adult_content_word_list: ./adult_content_word_list/ac_list_1.txt
   lang_stop_word_list: ./stop_word_list/stop_word_list_174.txt
-  uri_input_path: "./url_lists/popadsnet.txt"
+  uri_input_path: "./url_lists/popadsnet_25.txt"
+  uri_output_dir: "./output/"
+  ckpt_dir: "./checkpoint/"
 
 # Puppeteer Configurations
 puppeteer_config:
@@ -26,3 +28,5 @@ wp_exp_conf:
   click_timeout: 2 # In seconds
   max_num_bad_clicks: 10
   depth: 3
+  start_from_ckpt: true
+

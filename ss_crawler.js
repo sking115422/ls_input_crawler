@@ -12,6 +12,8 @@ const paths = config.get('paths')
 let ac_wl_fp = paths.adult_content_word_list
 let lsw_wl_fp = paths.lang_stop_word_list
 let uri_input_path_ = paths.uri_input_path
+let uri_output_dir_ = paths.uri_output_dir
+let ckpt_dir_ = paths.ckpt_dir
 
 const pupp_conf = config.get('puppeteer_config')
 
@@ -30,6 +32,21 @@ let max_clicks_ = wp_exp_conf.max_clicks
 let click_timeout_ = wp_exp_conf.click_timeout
 let max_num_bad_clicks_ = wp_exp_conf.max_num_bad_clicks
 let depth_ = wp_exp_conf.depth
+let start_from_ckpt_ = wp_exp_conf.start_from_ckpt
+
+////// CREATING CHECKPOINT FILES
+
+if (!fs.existsSync(ckpt_dir_ + "ret_list.json")) {
+    fs.writeFileSync(ckpt_dir_ + "ret_list.json", "[]")
+}
+
+if (!fs.existsSync(ckpt_dir_ + "del_list.json")) {
+    fs.writeFileSync(ckpt_dir_ + "del_list.json", "[]")
+}
+
+if (!fs.existsSync(ckpt_dir_ + "url_visited.txt")) {
+    fs.writeFileSync(ckpt_dir_ + "url_visited.txt", "")
+}
 
 ////// READING IN FILES
 
@@ -114,6 +131,41 @@ function removeItemFromArray(arr, item) {
 
 ////// MAIN FUNCTIONS
 
+function getUpdatedSeedList (dir, og_seed_list) {
+    try{
+        let visited_url_list = fs.readFileSync(dir + "url_visited.txt", "utf8").split("\r\n")
+        start_ind = visited_url_list.length - 1
+        let updated_list = []
+        for(i=start_ind; i<og_seed_list.length; i++){
+            updated_list.push(og_seed_list[i])
+        }
+        return updated_list
+    } catch (e) {
+        console.log(e)
+    }
+}
+
+function createCkptJson(dir, ind, url, ret_list, del_list) {
+
+        if (fs.existsSync(dir + "ret_list.json")) {
+            let ret_list_json = JSON.parse(fs.readFileSync(dir + "ret_list.json"))
+            ret_list_json.push(ret_list)
+            fs.writeFileSync(dir + "ret_list.json", JSON.stringify(ret_list_json))
+        }
+
+        if (fs.existsSync(dir + "del_list.json")) {
+            let del_list_json = JSON.parse(fs.readFileSync(dir + "del_list.json"))
+            del_list_json.push(del_list)
+            fs.writeFileSync(dir + "del_list.json", JSON.stringify(del_list_json))
+        }
+
+        if (fs.existsSync(dir + "url_visited.txt")) {
+            fs.appendFileSync(dir + "url_visited.txt", ind + " " + url + "\r\n")
+        }
+
+
+}
+
 async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) {
 
     // Setting language word percent to zero
@@ -137,17 +189,21 @@ async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) 
         const element_list_text = await page.$$eval('*', elements => elements.map(element => element.innerText));
 
         for (let i = 0; i < element_list_text.length; i++) {
-            elemWords = element_list_text[i].split(" ")
-            for (let j = 0; j < elemWords.length; j++) {
-                word_count++
-                for (k = 0; k < sw_list.length; k++){
-                    if (elemWords[j] == sw_list[k]) {
-                        en_count ++
-                    }
-                } 
+            if (element_list_text[i] != null) {
+                elemWords = element_list_text[i].split(" ")
+                for (let j = 0; j < elemWords.length; j++) {
+                    word_count++
+                    for (k = 0; k < sw_list.length; k++){
+                        if (elemWords[j] == sw_list[k]) {
+                            en_count ++
+                        }
+                    } 
+                }                
             }
         }
+
         lang_w_per = en_count/word_count
+
     }
 
     // console.log(lang_w_per)
@@ -323,6 +379,7 @@ async function exploreUriListToDepth (uri_list, depth) {
         tmp_list = await exploreUriToDepth(uri_list[ind], depth)
         ret_list.push(tmp_list[0])
         del_list.push(tmp_list[1])
+        createCkptJson(ckpt_dir_, ind, uri_list[ind], ret_list, del_list)
         ind++
     }
 
@@ -334,7 +391,12 @@ async function exploreUriListToDepth (uri_list, depth) {
 
 async function mainDriver () {
 
-    uri_seed_list = getUrlsFromTextFile(uri_input_path_)
+    let uri_seed_list = getUrlsFromTextFile(uri_input_path_)
+
+    if (start_from_ckpt_) {
+       uri_seed_list = getUpdatedSeedList(ckpt_dir_, uri_seed_list)
+    //    console.log(uri_seed_list)
+    }
 
     tmp_list = await exploreUriListToDepth(uri_seed_list, depth_)
     uri_list_master = tmp_list[0]
@@ -358,6 +420,18 @@ async function mainDriver () {
     uri_list_master_flat = removeDups(uri_list_master.flat(2))
     uri_del_list_master_flat = removeDups(uri_del_list_master.flat(2))
 
+    if (start_from_ckpt_) {
+
+        ckpt_ret_obj = JSON.parse(fs.readFileSync(ckpt_dir_ + "ret_list.json"))
+        ckpt_ret_list = removeDups(ckpt_ret_obj.flat(3))
+        uri_list_master_flat = [...ckpt_ret_list, ...uri_list_master_flat]
+
+        ckpt_del_obj = JSON.parse(fs.readFileSync(ckpt_dir_ + "del_list.json"))
+        ckpt_del_list = removeDups(ckpt_del_obj.flat(2))
+        uri_del_list_master_flat = [...ckpt_del_list, ...uri_del_list_master_flat]
+
+    }
+
     let uri_list_master_flat_cln = uri_list_master_flat
     for (i=0; i<uri_del_list_master_flat.length; i++) {
         uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, uri_del_list_master_flat[i])
@@ -378,9 +452,15 @@ async function mainDriver () {
         uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, del_list_ac[i])
     }
 
+    let uri_out_path = ""
     let uri_out_path_list1 = uri_input_path_.split("/")
     let uri_out_path_list2 = uri_out_path_list1[uri_out_path_list1.length - 1].split(".")
-    let uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
+
+    if (uri_output_dir_ == "default") {
+        uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
+    } else {
+        uri_out_path = uri_output_dir_ + uri_out_path_list2[0] + "__exp.txt"
+    }
 
     for (i = 0; i < uri_list_master_flat_cln.length; i++) {
         if (i != uri_list_master_flat_cln.length - 1){
