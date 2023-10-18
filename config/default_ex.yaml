@@ -7,7 +7,7 @@
 paths:
   adult_content_word_list: ./adult_content_word_list/ac_list_1.txt
   lang_stop_word_list: ./stop_word_list/stop_word_list_174.txt
-  uri_input_path: "/home/spenc/nis_lab_research/data/pubwww_seed_url_og/advertising/shuffled_sorted/high/l0.txt"
+  uri_input_path: "/home/spenc/nis_lab_research/data/pubwww_seed_url_og/advertising/shuffled_sorted/high/l1000.txt"
   uri_output_dir: "/home/spenc/nis_lab_research/data/pubwww_seed_url_og/advertising/crawled/high"
   ckpt_dir: "./checkpoint/"
 
@@ -15,7 +15,7 @@ paths:
 puppeteer_config:
   page_load_time_out: 5 # In seconds
   wait_until: networkidle2
-  headless: false
+  headless: new
 
 # Webpage Language Check Configurations
 lang_check_config:
