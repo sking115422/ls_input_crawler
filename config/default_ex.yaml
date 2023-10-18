@@ -7,8 +7,8 @@
 paths:
   adult_content_word_list: ./adult_content_word_list/ac_list_1.txt
   lang_stop_word_list: ./stop_word_list/stop_word_list_174.txt
-  uri_input_path: "./url_lists/popadsnet_25.txt"
-  uri_output_dir: "./output/"
+  uri_input_path: "/home/spenc/nis_lab_research/data/pubwww_seed_url_og/advertising/shuffled_sorted/high/l0.txt"
+  uri_output_dir: "/home/spenc/nis_lab_research/data/pubwww_seed_url_og/advertising/crawled/high"
   ckpt_dir: "./checkpoint/"
 
 # Puppeteer Configurations
