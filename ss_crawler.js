@@ -33,6 +33,7 @@ let click_timeout_ = wp_exp_conf.click_timeout
 let max_num_bad_clicks_ = wp_exp_conf.max_num_bad_clicks
 let depth_ = wp_exp_conf.depth
 let start_from_ckpt_ = wp_exp_conf.start_from_ckpt
+let num_prog_retry_ = wp_exp_conf.num_prog_retry
 
 ////// CREATING CHECKPOINT FILES
 
@@ -172,54 +173,105 @@ function createCkptJson(dir, ind, url, ret_list, del_list) {
 
 }
 
-// Function checks if a webpage is in a particular language and throws error if it is not
+// // Function checks if a webpage is in a particular language and throws error if it is not
+// async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) {
+
+//     // Setting language word percent to zero
+//     let lang_w_per = 0
+
+//     // Checking to see if webpage has specified language
+//     const wp_raw_lang = await page.$eval('html', element => element.lang);
+
+//     // If so and language matches desired language set percent to 1
+//     if (wp_raw_lang == wp_desired_lang) {
+//         lang_w_per = 1
+//     }
+
+//     // If not we will check the inner text of all element of the page against common stopwords of the language
+//     // then we will recompute lang_w_per
+//     if (lang_w_per < wp_lang_thresh) {
+
+//         en_count = 0
+//         word_count = 0
+
+//         const element_list_text = await page.$$eval('*', elements => elements.map(element => element.innerText));
+
+//         for (let i = 0; i < element_list_text.length; i++) {
+//             if (element_list_text[i] != null) {
+//                 elemWords = element_list_text[i].split(" ")
+//                 for (let j = 0; j < elemWords.length; j++) {
+//                     word_count++
+//                     for (k = 0; k < sw_list.length; k++){
+//                         if (elemWords[j] == sw_list[k]) {
+//                             en_count ++
+//                         }
+//                     } 
+//                 }                
+//             }
+//         }
+
+//         lang_w_per = en_count/word_count
+
+//     }
+
+//     // console.log(lang_w_per)
+
+//     // If language percent too low throw error
+//     if (lang_w_per < wp_lang_thresh) {
+//         throw "This webpage is not in english so it will be skipped!"
+//     }
+
+// }
+
+// Function checks if a webpage is in a particular language and throws an error if it is not
 async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) {
+    try {
+        // Setting language word percent to zero
+        let lang_w_per = 0
 
-    // Setting language word percent to zero
-    let lang_w_per = 0
+        // Checking to see if the webpage has the specified language
+        const wp_raw_lang = await page.$eval('html', (element) => element.lang)
 
-    // Checking to see if webpage has specified language
-    const wp_raw_lang = await page.$eval('html', element => element.lang);
-
-    // If so and language matches desired language set percent to 1
-    if (wp_raw_lang == wp_desired_lang) {
-        lang_w_per = 1
-    }
-
-    // If not we will check the inner text of all element of the page against common stopwords of the language
-    // then we will recompute lang_w_per
-    if (lang_w_per < wp_lang_thresh) {
-
-        en_count = 0
-        word_count = 0
-
-        const element_list_text = await page.$$eval('*', elements => elements.map(element => element.innerText));
-
-        for (let i = 0; i < element_list_text.length; i++) {
-            if (element_list_text[i] != null) {
-                elemWords = element_list_text[i].split(" ")
-                for (let j = 0; j < elemWords.length; j++) {
-                    word_count++
-                    for (k = 0; k < sw_list.length; k++){
-                        if (elemWords[j] == sw_list[k]) {
-                            en_count ++
-                        }
-                    } 
-                }                
-            }
+        // If the language matches the desired language, set percent to 1
+        if (wp_raw_lang == wp_desired_lang) {
+            lang_w_per = 1
         }
 
-        lang_w_per = en_count/word_count
+        // If not, we will check the inner text of all elements on the page against common stopwords of the language
+        // then we will recompute lang_w_per
+        if (lang_w_per < wp_lang_thresh) {
+            let en_count = 0
+            let word_count = 0
 
+            const element_list_text = await page.$$eval('*', (elements) =>
+                elements.map((element) => element.innerText)
+            )
+
+            for (let i = 0; i < element_list_text.length; i++) {
+                if (element_list_text[i] != null) {
+                    const elemWords = element_list_text[i].split(" ");
+                    for (let j = 0; j < elemWords.length; j++) {
+                        word_count++;
+                        for (let k = 0; k < sw_list.length; k++) {
+                            if (elemWords[j] == sw_list[k]) {
+                                en_count++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            lang_w_per = en_count / word_count
+        }
+
+        // If language percent too low, throw an error
+        if (lang_w_per < wp_lang_thresh) {
+            throw new Error("This webpage is not in English, so it will be skipped!")
+        }
+    } catch (error) {
+        // Handle the error here or rethrow it if needed
+        throw error;
     }
-
-    // console.log(lang_w_per)
-
-    // If language percent too low throw error
-    if (lang_w_per < wp_lang_thresh) {
-        throw "This webpage is not in english so it will be skipped!"
-    }
-
 }
 
 // Function clicks all elements on a give page. 
@@ -281,57 +333,119 @@ async function clickAllElements(page, element_list, max_clicks, click_timeout, m
 
 }
 
+// async function exploreUri(uri_list) {
+
+//     let uri_list_uniq_master = []
+//     let del_list_uniq_master = []
+
+//     for (i=0; i<uri_list.length; i++) {
+        
+//         // console.log("   " + i)
+
+//         let uri = uri_list[i]
+
+//         const browser = await puppeteer.launch({headless: headless_, ignoreHTTPSErrors: true })
+//         const page = await browser.newPage(); //open new tab
+//         await (await browser.pages())[0].close(); //close first one, to overcome the bug in stealth library mentioned in
+//         //https://github.com/berstend/puppeteer-extra/issues/88
+
+//         try {  
+
+
+//             await page.goto(uri, {
+//                 //https://blog.cloudlayer.io/puppeteer-waituntil-options/
+//                 waitUntil: wait_until,
+//                 timeout: page_load_time_out * 1000
+//                 // timeout: 0
+//             })
+
+//             const element_list = await page.$$('*')
+
+//             await checkWebpageLang(sw_list, page, wp_desired_lang_ , wp_lang_thresh_)
+//             let uri_list = await clickAllElements(page, element_list, max_clicks_, click_timeout_ * 1000, max_num_bad_clicks_)
+//             let tab_list = await browser.pages()
+
+//             for (j=0; j<tab_list.length; j++) {
+//                 uri_list.push(tab_list[j].url())
+//             }
+
+//             uri_list_uniq_master = removeDups([...uri_list_uniq_master, ...uri_list])
+
+//             // console.log(uri_list_uniq_master)
+
+//         } catch (e) {
+            
+//             //return this and uri_list_uniq_master then remove from finally array in higher function before it is written into txt file
+//             del_list = [uri, ...uri_list]
+//             del_list_uniq_master = removeDups([...del_list, ...del_list_uniq_master])
+//             console.error(e)
+
+//         } finally {
+
+//             await page.close()
+//             await browser.close()
+
+//         }
+
+//     }
+
+//     return [uri_list_uniq_master, del_list_uniq_master]
+
+// }
+
 async function exploreUri(uri_list) {
 
-    let uri_list_uniq_master = []
-    let del_list_uniq_master = []
+    let uri_list_uniq_master = [];
+    let del_list_uniq_master = [];
 
-    for (i=0; i<uri_list.length; i++) {
-        
-        // console.log("   " + i)
+    for (let i = 0; i < uri_list.length; i++) {
 
         let uri = uri_list[i]
+        let browser
+        let page
 
-        const browser = await puppeteer.launch({headless: headless_ })
-        const page = await browser.newPage(); //open new tab
-        await (await browser.pages())[0].close(); //close first one, to overcome the bug in stealth library mentioned in
-        //https://github.com/berstend/puppeteer-extra/issues/88
+        try {
 
-        try {  
+            browser = await puppeteer.launch({ headless: headless_, ignoreHTTPSErrors: true })
+            page = await browser.newPage()
 
+            // Close the initial page opened by Puppeteer to avoid the bug
+            const pages = await browser.pages()
+            if (pages.length > 1) {
+                await pages[0].close()
+            }
 
             await page.goto(uri, {
-                //https://blog.cloudlayer.io/puppeteer-waituntil-options/
                 waitUntil: wait_until,
-                timeout: page_load_time_out * 1000
-                // timeout: 0
-            })
+                timeout: page_load_time_out * 1000,
+            });
 
             const element_list = await page.$$('*')
 
-            await checkWebpageLang(sw_list, page, wp_desired_lang_ , wp_lang_thresh_)
+            await checkWebpageLang(sw_list, page, wp_desired_lang_, wp_lang_thresh_)
             let uri_list = await clickAllElements(page, element_list, max_clicks_, click_timeout_ * 1000, max_num_bad_clicks_)
             let tab_list = await browser.pages()
 
-            for (j=0; j<tab_list.length; j++) {
+            for (let j = 0; j < tab_list.length; j++) {
                 uri_list.push(tab_list[j].url())
             }
 
             uri_list_uniq_master = removeDups([...uri_list_uniq_master, ...uri_list])
 
-            // console.log(uri_list_uniq_master)
-
         } catch (e) {
-            
-            //return this and uri_list_uniq_master then remove from finally array in higher function before it is written into txt file
+
             del_list = [uri, ...uri_list]
             del_list_uniq_master = removeDups([...del_list, ...del_list_uniq_master])
             console.error(e)
 
         } finally {
 
-            await page.close()
-            await browser.close()
+            if (page) {
+                await page.close()
+            }
+            if (browser) {
+                await browser.close()
+            }
 
         }
 
@@ -341,6 +455,7 @@ async function exploreUri(uri_list) {
 
 }
 
+
 async function exploreUriToDepth (uri, depth) {
 
     let ind = 0
@@ -349,28 +464,26 @@ async function exploreUriToDepth (uri, depth) {
     let del_list_master = []
 
     while (ind < depth) {
-
-        let res = []
-
         try {
-            res = await exploreUri(uri_list)
+
+            let res = await exploreUri(uri_list)
+            let uri_list_new = res[0]
+            let diff_list = setDiff(uri_list_new, uri_list)
+
+            uri_list_master.push(diff_list)
+            uri_list = diff_list
+
+            let del_list = res[1]
+            if (del_list.length > 0) {
+                del_list_master.push(...del_list)
+            }
+
         } catch (e) {
             console.log(e)
+        } finally {
+            console.log(ind)
+            ind++            
         }
-
-        let uri_list_new = res[0]
-        let diff_list = setDiff(uri_list_new, uri_list)
-        uri_list_master.push(diff_list)
-        uri_list = diff_list
-
-        let del_list = res[1]
-        if (del_list.length > 0) {
-            del_list_master.push(...del_list)
-        }    
-
-        console.log(ind)
-        ind++
-
     }
 
     return [uri_list_master, del_list_master]
@@ -385,11 +498,16 @@ async function exploreUriListToDepth (uri_list, depth) {
     ind = 0
     while (ind < uri_list.length) {
         console.log(uri_list[ind])
-        tmp_list = await exploreUriToDepth(uri_list[ind], depth)
-        ret_list.push(tmp_list[0])
-        del_list.push(tmp_list[1])
-        createCkptJson(ckpt_dir_, ind, uri_list[ind], ret_list, del_list)
-        ind++
+        try {
+            tmp_list = await exploreUriToDepth(uri_list[ind], depth)
+            ret_list.push(tmp_list[0])
+            del_list.push(tmp_list[1])
+            createCkptJson(ckpt_dir_, ind, uri_list[ind], ret_list, del_list)
+        } catch (e) {
+            console.log(e)
+        } finally {
+            ind++
+        }
     }
 
     return [ret_list, del_list]
@@ -400,84 +518,101 @@ async function exploreUriListToDepth (uri_list, depth) {
 
 async function mainDriver () {
 
-    let uri_seed_list = getUrlsFromTextFile(uri_input_path_)
+    let retry_ind = 0
 
-    if (start_from_ckpt_) {
-       uri_seed_list = getUpdatedSeedList(ckpt_dir_, uri_seed_list)
-    //    console.log(uri_seed_list)
-    }
+    while (retry_ind < num_prog_retry_) {
 
-    tmp_list = await exploreUriListToDepth(uri_seed_list, depth_)
-    uri_list_master = tmp_list[0]
-    uri_del_list_master = tmp_list[1]
+        try{
 
-    const timestamp = new Date().getTime()
-    ts_f = moment(timestamp).format()
+            let uri_seed_list = getUrlsFromTextFile(uri_input_path_)
 
-    if (!fs.existsSync("./logs/" + ts_f))
-        fs.mkdirSync("./logs/" + ts_f)
-
-    fs.writeFileSync("./logs/" + ts_f + "/uri_list_master.json", JSON.stringify(uri_list_master))
-
-    for (i = 0; i < uri_seed_list.length; i++) {
-        if (i != uri_seed_list.length - 1)
-            fs.appendFileSync("./logs/" + ts_f + "/uri_seed_list.txt", uri_seed_list[i] + "\r\n", )
-        else 
-        fs.appendFileSync("./logs/" + ts_f + "/uri_seed_list.txt", uri_seed_list[i], )
-    }
-
-    uri_list_master_flat = removeDups(uri_list_master.flat(2))
-    uri_del_list_master_flat = removeDups(uri_del_list_master.flat(2))
-
-    if (start_from_ckpt_) {
-
-        ckpt_ret_obj = JSON.parse(fs.readFileSync(ckpt_dir_ + "ret_list.json"))
-        ckpt_ret_list = removeDups(ckpt_ret_obj.flat(3))
-        uri_list_master_flat = [...ckpt_ret_list, ...uri_list_master_flat]
-
-        ckpt_del_obj = JSON.parse(fs.readFileSync(ckpt_dir_ + "del_list.json"))
-        ckpt_del_list = removeDups(ckpt_del_obj.flat(2))
-        uri_del_list_master_flat = [...ckpt_del_list, ...uri_del_list_master_flat]
-
-    }
-
-    let uri_list_master_flat_cln = uri_list_master_flat
-    for (i=0; i<uri_del_list_master_flat.length; i++) {
-        uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, uri_del_list_master_flat[i])
-    }
-
-    del_list_ac = []
-    for (i=0; i<uri_list_master_flat_cln.length; i++){
-        for (j=0; j<ac_list.length; j++){
-            // console.log(uri_list_master_flat_cln[i],  ac_list[j], uri_list_master_flat_cln[i].indexOf(ac_list[j]))
-            if (uri_list_master_flat_cln[i].indexOf(ac_list[j]) >= 0) {
-                // console.log(uri_list_master_flat_cln[i],  ac_list[j], uri_list_master_flat_cln[i].indexOf(ac_list[j]))
-                del_list_ac.push(uri_list_master_flat_cln[i])
+            if (start_from_ckpt_) {
+            uri_seed_list = getUpdatedSeedList(ckpt_dir_, uri_seed_list)
+            //    console.log(uri_seed_list)
             }
+
+            tmp_list = await exploreUriListToDepth(uri_seed_list, depth_)
+            uri_list_master = tmp_list[0]
+            uri_del_list_master = tmp_list[1]
+
+            const timestamp = new Date().getTime()
+            ts_f = moment(timestamp).format()
+
+            if (!fs.existsSync("./logs/" + ts_f))
+                fs.mkdirSync("./logs/" + ts_f)
+
+            fs.writeFileSync("./logs/" + ts_f + "/uri_list_master.json", JSON.stringify(uri_list_master))
+
+            for (i = 0; i < uri_seed_list.length; i++) {
+                if (i != uri_seed_list.length - 1)
+                    fs.appendFileSync("./logs/" + ts_f + "/uri_seed_list.txt", uri_seed_list[i] + "\r\n", )
+                else 
+                fs.appendFileSync("./logs/" + ts_f + "/uri_seed_list.txt", uri_seed_list[i], )
+            }
+
+            uri_list_master_flat = removeDups(uri_list_master.flat(2))
+            uri_del_list_master_flat = removeDups(uri_del_list_master.flat(2))
+
+            if (start_from_ckpt_) {
+
+                ckpt_ret_obj = JSON.parse(fs.readFileSync(ckpt_dir_ + "ret_list.json"))
+                ckpt_ret_list = removeDups(ckpt_ret_obj.flat(3))
+                uri_list_master_flat = [...ckpt_ret_list, ...uri_list_master_flat]
+
+                ckpt_del_obj = JSON.parse(fs.readFileSync(ckpt_dir_ + "del_list.json"))
+                ckpt_del_list = removeDups(ckpt_del_obj.flat(2))
+                uri_del_list_master_flat = [...ckpt_del_list, ...uri_del_list_master_flat]
+
+            }
+
+            let uri_list_master_flat_cln = uri_list_master_flat
+            for (i=0; i<uri_del_list_master_flat.length; i++) {
+                uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, uri_del_list_master_flat[i])
+            }
+
+            del_list_ac = []
+            for (i=0; i<uri_list_master_flat_cln.length; i++){
+                for (j=0; j<ac_list.length; j++){
+                    // console.log(uri_list_master_flat_cln[i],  ac_list[j], uri_list_master_flat_cln[i].indexOf(ac_list[j]))
+                    if (uri_list_master_flat_cln[i].indexOf(ac_list[j]) >= 0) {
+                        // console.log(uri_list_master_flat_cln[i],  ac_list[j], uri_list_master_flat_cln[i].indexOf(ac_list[j]))
+                        del_list_ac.push(uri_list_master_flat_cln[i])
+                    }
+                }
+            }
+
+            for (i=0; i<del_list_ac.length; i++) {
+                uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, del_list_ac[i])
+            }
+
+            let uri_out_path = ""
+            let uri_out_path_list1 = uri_input_path_.split("/")
+            let uri_out_path_list2 = uri_out_path_list1[uri_out_path_list1.length - 1].split(".")
+
+            if (uri_output_dir_ == "default") {
+                uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
+            } else {
+                uri_out_path = uri_output_dir_ + uri_out_path_list2[0] + "__exp.txt"
+            }
+
+            for (i = 0; i < uri_list_master_flat_cln.length; i++) {
+                if (i != uri_list_master_flat_cln.length - 1){
+                    fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] + "\r\n" )            
+                }
+                else {
+                    fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i])
+                }
+            }
+
+            break
+
+        } catch (e) {
+            console.log(e)
+        } finally {
+            retry_ind++
+
         }
-    }
 
-    for (i=0; i<del_list_ac.length; i++) {
-        uri_list_master_flat_cln = removeItemFromArray(uri_list_master_flat_cln, del_list_ac[i])
-    }
-
-    let uri_out_path = ""
-    let uri_out_path_list1 = uri_input_path_.split("/")
-    let uri_out_path_list2 = uri_out_path_list1[uri_out_path_list1.length - 1].split(".")
-
-    if (uri_output_dir_ == "default") {
-        uri_out_path = uri_out_path_list1.slice(0, uri_out_path_list1.length - 1).join("/") + "/" + uri_out_path_list2[0] + "__exp.txt"
-    } else {
-        uri_out_path = uri_output_dir_ + uri_out_path_list2[0] + "__exp.txt"
-    }
-
-    for (i = 0; i < uri_list_master_flat_cln.length; i++) {
-        if (i != uri_list_master_flat_cln.length - 1){
-            fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] + "\r\n" )            
-        }
-        else {
-            fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i])
-        }
     }
 
 }
