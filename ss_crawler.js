@@ -4,6 +4,11 @@ const puppeteer = require('puppeteer')
 const fs = require('fs');
 const moment = require('moment')
 const config = require('config');
+// const imageHash = require('image-hash');
+// const blockhash = require("blockhash-core");
+// const { createImageData } = require("canvas");
+const imageHash = require('node-image-hash');
+const { exit } = require('process');
 
 ////// SETTING VARIABLES FROM CONFIG
 
@@ -34,6 +39,12 @@ let max_num_bad_clicks_ = wp_exp_conf.max_num_bad_clicks
 let depth_ = wp_exp_conf.depth
 let start_from_ckpt_ = wp_exp_conf.start_from_ckpt
 let num_prog_retry_ = wp_exp_conf.num_prog_retry
+let vh = wp_exp_conf.view_height
+let vw = wp_exp_conf.view_width
+
+const ss_dup_rem = config.get('ss_dup_rem')
+
+let ss_dup_thold = ss_dup_rem.thold
 
 ////// CREATING CHECKPOINT FILES
 
@@ -134,6 +145,66 @@ function removeItemFromArray(arr, item) {
     return arr_tmp
 }
 
+function getPHash(imageBuffer) {
+    
+    res = imageHash
+    .hash(imageBuffer, 8, 'hex')
+    .then((hash) => {
+        return hash.hash
+    });
+    return res
+
+}
+
+function hammingDistance(hash1, hash2) {
+
+    if (hash1.length !== hash2.length) {
+        throw new Error('Hashes must have the same length for comparison.');
+    }
+
+    let distance = 0;
+    for (let i = 0; i < hash1.length; i++) {
+        if (hash1[i] !== hash2[i]) {
+        distance++;
+        }
+    }
+
+    return distance;
+
+}
+  
+function similarityScore(hash1, hash2) {
+
+    const hashLength = hash1.length;
+    const distance = hammingDistance(hash1, hash2);
+
+    // Calculate the similarity score as a percentage
+    const score = ((hashLength - distance) / hashLength) * 100;
+    return score;
+
+}
+
+function getSimilarHashIndList(hashList, threshold) {
+
+    const indicesToRemove = [];
+
+    for (let i = 0; i < hashList.length; i++) {
+        for (let j = i + 1; j < hashList.length; j++) {
+        const hash1 = hashList[i];
+        const hash2 = hashList[j];
+
+        const score = similarityScore(hash1, hash2);
+
+        if (score >= threshold) {
+            indicesToRemove.push(j);
+        }
+        }
+    }
+
+    return indicesToRemove
+
+} 
+
 ////// MAIN FUNCTIONS
 
 // Function updates initial seed url list in case the previous run fails
@@ -173,55 +244,80 @@ function createCkptJson(dir, ind, url, ret_list, del_list) {
 
 }
 
-// // Function checks if a webpage is in a particular language and throws error if it is not
-// async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) {
+async function removeDuplicateSites(uri_list) {
 
-//     // Setting language word percent to zero
-//     let lang_w_per = 0
+    hash_list = []
 
-//     // Checking to see if webpage has specified language
-//     const wp_raw_lang = await page.$eval('html', element => element.lang);
+    for (let i = 0; i < uri_list.length; i++) {
 
-//     // If so and language matches desired language set percent to 1
-//     if (wp_raw_lang == wp_desired_lang) {
-//         lang_w_per = 1
-//     }
+        let uri = uri_list[i]
+        let browser
+        let page
 
-//     // If not we will check the inner text of all element of the page against common stopwords of the language
-//     // then we will recompute lang_w_per
-//     if (lang_w_per < wp_lang_thresh) {
+        try {
 
-//         en_count = 0
-//         word_count = 0
+            browser = await puppeteer.launch({ headless: headless_, ignoreHTTPSErrors: true })
+            page = await browser.newPage()
 
-//         const element_list_text = await page.$$eval('*', elements => elements.map(element => element.innerText));
+            // Close the initial page opened by Puppeteer to avoid the bug
+            const pages = await browser.pages()
+            if (pages.length > 1) {
+                await pages[0].close()
+            }
 
-//         for (let i = 0; i < element_list_text.length; i++) {
-//             if (element_list_text[i] != null) {
-//                 elemWords = element_list_text[i].split(" ")
-//                 for (let j = 0; j < elemWords.length; j++) {
-//                     word_count++
-//                     for (k = 0; k < sw_list.length; k++){
-//                         if (elemWords[j] == sw_list[k]) {
-//                             en_count ++
-//                         }
-//                     } 
-//                 }                
-//             }
-//         }
+            await page.setViewport({
+                height: vh,
+                width: vw
+            });
 
-//         lang_w_per = en_count/word_count
+            await page.goto(uri, {
+                waitUntil: wait_until,
+                timeout: page_load_time_out * 1000,
+            });
 
-//     }
+            let ss = await page.screenshot({clip: {
+                x:0,
+                y:0,
+                width: vw,
+                height: vh
+            }})
+            
+            hash_list.push(await getPHash(ss))
+  
+        } catch (e) {
 
-//     // console.log(lang_w_per)
+            console.error(e)
+            hash_list.push("0000000000000000")
 
-//     // If language percent too low throw error
-//     if (lang_w_per < wp_lang_thresh) {
-//         throw "This webpage is not in english so it will be skipped!"
-//     }
+        } finally {
 
-// }
+            if (page) {
+                await page.close()
+            }
+            if (browser) {
+                await browser.close()
+            }
+
+        }
+
+    }
+
+    
+
+    let ind_rem_list = getSimilarHashIndList(hash_list, ss_dup_thold)
+    console.log("indecies removed:", ind_rem_list)
+
+    // Sort the indices in descending order to avoid issues when removing elements
+    ind_rem_list.sort((a, b) => b - a)
+
+    // Remove elements at the specified index positions
+    ind_rem_list.forEach(index => {
+        uri_list.splice(index, 1);
+    });
+
+    return uri_list
+
+}
 
 // Function checks if a webpage is in a particular language and throws an error if it is not
 async function checkWebpageLang(sw_list, page, wp_desired_lang, wp_lang_thresh) {
@@ -333,66 +429,6 @@ async function clickAllElements(page, element_list, max_clicks, click_timeout, m
 
 }
 
-// async function exploreUri(uri_list) {
-
-//     let uri_list_uniq_master = []
-//     let del_list_uniq_master = []
-
-//     for (i=0; i<uri_list.length; i++) {
-        
-//         // console.log("   " + i)
-
-//         let uri = uri_list[i]
-
-//         const browser = await puppeteer.launch({headless: headless_, ignoreHTTPSErrors: true })
-//         const page = await browser.newPage(); //open new tab
-//         await (await browser.pages())[0].close(); //close first one, to overcome the bug in stealth library mentioned in
-//         //https://github.com/berstend/puppeteer-extra/issues/88
-
-//         try {  
-
-
-//             await page.goto(uri, {
-//                 //https://blog.cloudlayer.io/puppeteer-waituntil-options/
-//                 waitUntil: wait_until,
-//                 timeout: page_load_time_out * 1000
-//                 // timeout: 0
-//             })
-
-//             const element_list = await page.$$('*')
-
-//             await checkWebpageLang(sw_list, page, wp_desired_lang_ , wp_lang_thresh_)
-//             let uri_list = await clickAllElements(page, element_list, max_clicks_, click_timeout_ * 1000, max_num_bad_clicks_)
-//             let tab_list = await browser.pages()
-
-//             for (j=0; j<tab_list.length; j++) {
-//                 uri_list.push(tab_list[j].url())
-//             }
-
-//             uri_list_uniq_master = removeDups([...uri_list_uniq_master, ...uri_list])
-
-//             // console.log(uri_list_uniq_master)
-
-//         } catch (e) {
-            
-//             //return this and uri_list_uniq_master then remove from finally array in higher function before it is written into txt file
-//             del_list = [uri, ...uri_list]
-//             del_list_uniq_master = removeDups([...del_list, ...del_list_uniq_master])
-//             console.error(e)
-
-//         } finally {
-
-//             await page.close()
-//             await browser.close()
-
-//         }
-
-//     }
-
-//     return [uri_list_uniq_master, del_list_uniq_master]
-
-// }
-
 async function exploreUri(uri_list) {
 
     let uri_list_uniq_master = [];
@@ -415,10 +451,24 @@ async function exploreUri(uri_list) {
                 await pages[0].close()
             }
 
+            await page.setViewport({
+                height: vh,
+                width: vw
+            });
+
             await page.goto(uri, {
                 waitUntil: wait_until,
                 timeout: page_load_time_out * 1000,
             });
+
+            let ss = await page.screenshot({clip: {
+                x:0,
+                y:0,
+                width: vw,
+                height: vh
+            }})
+
+            // console.log(await getPHash(ss))
 
             const element_list = await page.$$('*')
 
@@ -454,7 +504,6 @@ async function exploreUri(uri_list) {
     return [uri_list_uniq_master, del_list_uniq_master]
 
 }
-
 
 async function exploreUriToDepth (uri, depth) {
 
@@ -595,6 +644,12 @@ async function mainDriver () {
                 uri_out_path = uri_output_dir_ + uri_out_path_list2[0] + "__exp.txt"
             }
 
+            console.log("original uri_list:", uri_list_master_flat_cln.length)
+
+            uri_list_master_flat_cln = await removeDuplicateSites(uri_list_master_flat_cln)
+
+            console.log("dup removed uri_list:", uri_list_master_flat_cln.length)
+
             for (i = 0; i < uri_list_master_flat_cln.length; i++) {
                 if (i != uri_list_master_flat_cln.length - 1){
                     fs.appendFileSync(uri_out_path, uri_list_master_flat_cln[i] + "\r\n" )            
@@ -604,7 +659,7 @@ async function mainDriver () {
                 }
             }
 
-            break
+            exit(0)
 
         } catch (e) {
             console.log(e)
