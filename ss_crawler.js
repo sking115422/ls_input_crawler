@@ -304,7 +304,7 @@ async function removeDuplicateSites(uri_list) {
 
     
 
-    let ind_rem_list = getSimilarHashIndList(hash_list, ss_dup_thold)
+    let ind_rem_list = removeDups(getSimilarHashIndList(hash_list, ss_dup_thold))
     console.log("indecies removed:", ind_rem_list)
 
     // Sort the indices in descending order to avoid issues when removing elements
