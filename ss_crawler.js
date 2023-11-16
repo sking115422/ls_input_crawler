@@ -3,7 +3,8 @@
 const puppeteer = require('puppeteer')
 const fs = require('fs');
 const moment = require('moment')
-const config = require('config');
+// const config = require('config');
+const YAML = require('yaml')
 // const imageHash = require('image-hash');
 // const blockhash = require("blockhash-core");
 // const { createImageData } = require("canvas");
@@ -12,7 +13,11 @@ const { exit } = require('process');
 
 ////// SETTING VARIABLES FROM CONFIG
 
-const paths = config.get('paths')
+const config_path = "./config/default.yaml"
+let conf_f = fs.readFileSync(config_path, 'utf8')
+let conf_fy = YAML.parse(conf_f)
+
+const paths = conf_fy.paths
 
 let ac_wl_fp = paths.adult_content_word_list
 let lsw_wl_fp = paths.lang_stop_word_list
@@ -20,18 +25,18 @@ let uri_input_path_ = paths.uri_input_path
 let uri_output_dir_ = paths.uri_output_dir
 let ckpt_dir_ = paths.ckpt_dir
 
-const pupp_conf = config.get('puppeteer_config')
+const pupp_conf = conf_fy.puppeteer_config
 
 let wait_until = pupp_conf.wait_until
 let headless_ = pupp_conf.headless
 let page_load_time_out = pupp_conf.page_load_time_out
 
-const lang_check_conf = config.get('lang_check_config')
+const lang_check_conf = conf_fy.lang_check_config
 
 let wp_desired_lang_ = lang_check_conf.wp_desired_lang
 let wp_lang_thresh_ = lang_check_conf.wp_lang_thresh
 
-const wp_exp_conf = config.get('wp_exp_conf')
+const wp_exp_conf = conf_fy.wp_exp_conf
 
 let max_clicks_ = wp_exp_conf.max_clicks
 let click_timeout_ = wp_exp_conf.click_timeout
@@ -42,7 +47,7 @@ let num_prog_retry_ = wp_exp_conf.num_prog_retry
 let vh = wp_exp_conf.view_height
 let vw = wp_exp_conf.view_width
 
-const ss_dup_rem = config.get('ss_dup_rem')
+const ss_dup_rem = conf_fy.ss_dup_rem
 
 let ss_dup_thold = ss_dup_rem.thold
 
@@ -256,7 +261,7 @@ async function removeDuplicateSites(uri_list) {
 
         try {
 
-            browser = await puppeteer.launch({ headless: headless_, ignoreHTTPSErrors: true })
+            browser = await puppeteer.launch({ headless: headless_, ignoreHTTPSErrors: true, args: ['--no-sandbox'] })
             page = await browser.newPage()
 
             // Close the initial page opened by Puppeteer to avoid the bug
@@ -286,7 +291,7 @@ async function removeDuplicateSites(uri_list) {
   
         } catch (e) {
 
-            console.error(e)
+            // console.error(e)
             hash_list.push("0000000000000000")
 
         } finally {
@@ -304,7 +309,7 @@ async function removeDuplicateSites(uri_list) {
 
     
 
-    let ind_rem_list = getSimilarHashIndList(hash_list, ss_dup_thold)
+    let ind_rem_list = removeDups(getSimilarHashIndList(hash_list, ss_dup_thold))
     console.log("indecies removed:", ind_rem_list)
 
     // Sort the indices in descending order to avoid issues when removing elements
@@ -442,7 +447,21 @@ async function exploreUri(uri_list) {
 
         try {
 
-            browser = await puppeteer.launch({ headless: headless_, ignoreHTTPSErrors: true })
+
+            // // For use outside of docker container on bare metal machine
+            // browser = await puppeteer.launch({ headless: headless_, ignoreHTTPSErrors: true})
+
+            // For use in docker container
+            browser = await puppeteer.launch({ 
+                headless: headless_, 
+                ignoreHTTPSErrors: true, 
+                args: 
+                [
+                    '--no-sandbox'
+                    // '--disable-setuid-sandbox'
+                ] 
+            })
+
             page = await browser.newPage()
 
             // Close the initial page opened by Puppeteer to avoid the bug
@@ -571,6 +590,8 @@ async function mainDriver () {
 
     while (retry_ind < num_prog_retry_) {
 
+        console.log("STARTING URI EXPLORATION")
+
         try{
 
             let uri_seed_list = getUrlsFromTextFile(uri_input_path_)
@@ -644,6 +665,7 @@ async function mainDriver () {
                 uri_out_path = uri_output_dir_ + uri_out_path_list2[0] + "__exp.txt"
             }
 
+            console.log("STARTING DUPLICATE SITE REMOVAL")
             console.log("original uri_list:", uri_list_master_flat_cln.length)
 
             uri_list_master_flat_cln = await removeDuplicateSites(uri_list_master_flat_cln)

@@ -1,11 +1,12 @@
 // Importing Libraries
-const fs = require('fs');
-const config = require('config');
+const YAML = require('yaml')
+const fs = require('fs')
 
-// Reading Config
-const paths = config.get('paths')
-let uri_output_dir_ = paths.uri_output_dir
-let ckpt_dir_ = paths.ckpt_dir
+let f = fs.readFileSync('./config/default.yaml', 'utf8')
+let fy = YAML.parse(f)
+
+let uri_output_dir_ = fy.paths.uri_output_dir
+let ckpt_dir_ = fy.paths.ckpt_dir
 
 // // Cleaing Output Dir
 // let output_dir_list = fs.readdirSync(uri_output_dir_)
